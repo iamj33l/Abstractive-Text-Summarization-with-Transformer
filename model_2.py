@@ -15,14 +15,14 @@ dataset = load_dataset("cnn_dailymail", "3.0.0")
 print("Collecting training data...")
 train_raw_data = dataset['train'].to_pandas()
 train_columns = train_raw_data[['article', 'highlights']]
-train_data = pd.DataFrame(train_columns).head(1000)
+train_data = pd.DataFrame(train_columns)
 train_data.drop_duplicates(subset=['article'], inplace=True)
 print("Done: collected training data")
 
 """ Collecting testing data """
 test_raw_data = dataset['test'].to_pandas()
 test_columns = test_raw_data[['article', 'highlights']]
-test_data = pd.DataFrame(test_columns).head(1000)
+test_data = pd.DataFrame(test_columns)
 test_data.drop_duplicates(subset=['article'], inplace=True)
 print("Done: collected test data")
 
