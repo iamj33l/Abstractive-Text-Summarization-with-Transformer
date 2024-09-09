@@ -10,36 +10,44 @@ import numpy as np
 
 """ Collecting training data """
 print("Collecting data...")
-train_dataset = load_dataset("kmfoda/booksum")
+train_dataset = load_dataset("cnn_dailymail", "3.0.0")
 train_raw_data = train_dataset['train'].to_pandas()
-train_columns = train_raw_data[['chapter', 'summary_text']]
+train_columns = train_raw_data[['article', 'highlights']]
 train_data = pd.DataFrame(train_columns)
-train_data.drop_duplicates(subset=['chapter'], inplace=True)
+train_data.drop_duplicates(subset=['article'], inplace=True)
 print("Done: collected training data")
 
 """ Collecting testing data """
-test_dataset = load_dataset("kmfoda/booksum")
+test_dataset = load_dataset("cnn_dailymail", "3.0.0")
 test_raw_data = test_dataset['test'].to_pandas()
-test_columns = test_raw_data[['chapter', 'summary_text']]
+test_columns = test_raw_data[['article', 'highlights']]
 test_data = pd.DataFrame(test_columns)
-test_data.drop_duplicates(subset=['chapter'], inplace=True)
+test_data.drop_duplicates(subset=['article'], inplace=True)
 print("Done: collected test data")
 
 """ Cleaning training Data """
-print("Cleaning Data...")
-train_data['clean_chapter'] = train_data['chapter'].apply(text_cleaner)
-train_data['clean_summary_text'] = train_data['summary_text'].apply(text_cleaner)
-train_data['clean_summary_text'] = train_data['clean_summary_text'].replace('', np.nan)
+print("Cleaning training Data...")
+train_data['clean_article'] = train_data['article'].apply(text_cleaner)
+train_data['clean_highlights'] = train_data['highlights'].apply(text_cleaner)
+train_data['clean_highlights'] = train_data['clean_highlights'].replace('', np.nan)
 train_data.dropna(axis=0, inplace=True)
-print("Done: cleaned data")
+print("Done: cleaned training data")
+
+""" Cleaning testing Data """
+print("Cleaning testing Data...")
+test_data['clean_article'] = test_data['article'].apply(text_cleaner)
+test_data['clean_highlights'] = test_data['highlights'].apply(text_cleaner)
+test_data['clean_highlights'] = test_data['clean_highlights'].replace('', np.nan)
+test_data.dropna(axis=0, inplace=True)
+print("Done: cleaned testing data")
 
 # Specifying maximum length
-max_len_chapter = 10000  # Reduced from 20000 to fit memory constraints
-max_len_summary = 2000   # Reduced from 2500 to fit memory constraints
+max_len_chapter = 1250  # Reduced from 20000 to fit memory constraints
+max_len_summary = 150   # Reduced from 2500 to fit memory constraints
 
 # Create tokens
-input_tokens = tokenize(train_data['clean_chapter'])
-output_tokens = tokenize(train_data['clean_summary_text'])
+input_tokens = tokenize(train_data['clean_article'])
+output_tokens = tokenize(train_data['clean_highlights'])
 print("Done: tokens created")
 
 # Create vocabulary
@@ -63,7 +71,7 @@ model = Transformer(
     d_model=256,        
     num_heads=4,  
     num_layers=4,       
-    d_ff=512,           # Reduced from 1024 to fit memory constraints
+    d_ff=512,      
     max_seq_length=max_len_chapter,
     dropout=0.1
 )
@@ -115,3 +123,64 @@ for epoch in range(EPOCHS):
     print(f'Epoch {epoch+1}/{EPOCHS}, Loss: {loss:.4f}\n')
 
 print("Training Completed!")
+
+""" Tesing the model """
+
+# Prepare arrays for input and output
+input_tokens_test = tokenize(test_data['clean_article'])
+output_tokens_test = tokenize(test_data['clean_highlights'])
+
+input_array_test, src_valid_len_test = build_array_sum(input_tokens_test, input_vocab, max_len_chapter)
+
+# Set batch size (keeping it small for memory reasons)
+batch_size_test = 1
+data_iter_test = load_array((input_array_test, src_valid_len_test), batch_size_test)
+
+def predict(data_iter, model, output_vocab, max_len_summary):
+    model.eval()
+    results = []
+
+    for i, (src, src_valid_len) in enumerate(data_iter):
+        # Move data to the same device as the model
+        src = src.to(device)
+
+        # Initialize output with bos token
+        tgt = torch.tensor([[output_vocab['<bos>']]]).to(device)
+
+        for i in range(max_len_summary):
+            # Forward pass
+            output = model(src, tgt)
+            pred = output.argmax(dim=-1)[:, -1].unsqueeze(1)
+
+            # Concatenate the prediction to the output
+            tgt = torch.cat((tgt, pred), dim=-1)
+
+            # Stop if the model predicts the eos token
+            if pred[0][0].item() == output_vocab['<eos>']:
+                break
+
+        results.append(tgt[0].cpu().numpy())
+
+    return results
+
+# Predict summaries
+print("Predicting summaries...")
+results = predict(data_iter_test, model, output_vocab, max_len_summary)
+print("Done: predicted summaries")
+
+# Convert the predicted summaries to text
+predicted_summaries = [output_vocab.to_tokens(res) for res in results]
+
+# Convert the actual summaries to text
+actual_summaries = test_data['clean_highlights'].tolist()
+
+# Display the first 5 predicted and actual summaries
+for i in range(5):
+    print(f"\nPredicted Summary: {predicted_summaries[i]}")
+    print(f"Actual Summary: {actual_summaries[i]}")
+
+
+''' Save the model '''
+print("\nSaving model...")
+torch.save(model.state_dict(), 'transformer_summarization_model.pth')
+print("\nModel saved!")
