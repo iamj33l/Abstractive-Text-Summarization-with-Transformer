@@ -7,4 +7,4 @@ nltk==3.9.1
 numpy==1.26.4
 pandas==2.2.2
 sympy==1.13.2
-torch==2.3.1+cpu
+torch==2.3.1+cpu -f https://download.pytorch.org/whl/torch_stable.html
